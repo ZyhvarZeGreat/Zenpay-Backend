@@ -1,0 +1,553 @@
+// Prisma schema for Zenpay Payroll System
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User and Authentication Models
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  password      String
+  firstName     String
+  lastName      String
+  role          UserRole @default(VIEWER)
+  isActive      Boolean  @default(true)
+  emailVerified Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  refreshTokens     RefreshToken[]
+  passwordResets    PasswordReset[]
+  otpCodes          OtpCode[]
+  auditLogs         AuditLog[]
+  notifications     Notification[]
+  notificationPrefs NotificationPreference?
+
+  @@index([email])
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  FINANCE_MANAGER
+  VIEWER
+  EMPLOYEE
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("password_resets")
+}
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  userId    String
+  code      String
+  purpose   String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("otp_codes")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  resource  String
+  details   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// Employee Models
+model Employee {
+  id                String            @id @default(uuid())
+  blockchainId      Int               @unique
+  walletAddress     String            @unique
+  firstName         String
+  lastName          String
+  email             String            @unique
+  department        String
+  role              String
+  salaryAmount      String
+  salaryToken       String
+  paymentFrequency  PaymentFrequency
+  status            EmployeeStatus    @default(ACTIVE)
+  network           BlockchainNetwork
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  // Relations
+  payments   Payment[]
+  invoices   Invoice[]
+  receipts   Receipt[]
+
+  @@index([walletAddress])
+  @@index([department])
+  @@index([status])
+  @@map("employees")
+}
+
+enum PaymentFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum BlockchainNetwork {
+  ETHEREUM
+  POLYGON
+  BSC
+}
+
+// Payment Models
+model Payment {
+  id                String        @id @default(uuid())
+  blockchainId      Int?
+  batchId           String?
+  employeeId        String
+  walletAddress     String
+  amount            String
+  token             String
+  status            PaymentStatus @default(PENDING)
+  transactionHash   String?
+  blockNumber       Int?
+  confirmations     Int           @default(0)
+  gasUsed           String?
+  gasPrice          String?
+  failureReason     String?
+  network           BlockchainNetwork
+  createdAt         DateTime      @default(now())
+  completedAt       DateTime?
+  syncedAt          DateTime?
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  batch    Batch?   @relation(fields: [batchId], references: [id])
+
+  @@index([employeeId])
+  @@index([batchId])
+  @@index([status])
+  @@index([transactionHash])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CONFIRMED
+}
+
+model Batch {
+  id              String        @id @default(uuid())
+  blockchainId    Int?
+  totalAmount     String
+  token           String
+  paymentCount    Int
+  successCount    Int           @default(0)
+  failureCount    Int           @default(0)
+  status          PaymentStatus @default(PENDING)
+  network         BlockchainNetwork
+  transactionHash String?
+  createdBy       String
+  createdAt       DateTime      @default(now())
+  completedAt     DateTime?
+
+  payments Payment[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("batches")
+}
+
+// Invoice & Receipt Models
+model Invoice {
+  id              String        @id @default(uuid())
+  blockchainId    Int?
+  employeeId      String
+  amount          String
+  token           String
+  status          InvoiceStatus @default(DRAFT)
+  description     String?
+  dueDate         DateTime
+  paidAt          DateTime?
+  transactionHash String?
+  network         BlockchainNetwork
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  employee Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  receipt  Receipt?
+
+  @@index([employeeId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PENDING
+  PAID
+  CANCELLED
+}
+
+model Receipt {
+  id              String            @id @default(uuid())
+  blockchainId    Int?
+  invoiceId       String            @unique
+  employeeId      String
+  amount          String
+  token           String
+  transactionHash String
+  paidAt          DateTime
+  paidBy          String
+  network         BlockchainNetwork
+  createdAt       DateTime          @default(now())
+
+  invoice  Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([transactionHash])
+  @@index([employeeId])
+  @@map("receipts")
+}
+
+// Payment Approval Models
+model PaymentRequest {
+  id              String                @id @default(uuid())
+  blockchainId    Int?
+  employeeIds     String[]
+  walletAddresses String[]
+  amounts         String[]
+  token           String
+  status          PaymentRequestStatus  @default(PENDING)
+  reason          String?
+  requestedBy     String
+  approvedBy      String?
+  executedBy      String?
+  network         BlockchainNetwork
+  createdAt       DateTime              @default(now())
+  approvedAt      DateTime?
+  executedAt      DateTime?
+
+  approvalHistory ApprovalHistory[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("payment_requests")
+}
+
+enum PaymentRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXECUTED
+}
+
+model ApprovalHistory {
+  id        String               @id @default(uuid())
+  requestId String
+  approver  String
+  decision  PaymentRequestStatus
+  comments  String?
+  createdAt DateTime             @default(now())
+
+  request PaymentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@map("approval_history")
+}
+
+// Notification Models
+model Notification {
+  id        String             @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?
+  read      Boolean            @default(false)
+  readAt    DateTime?
+  createdAt DateTime           @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  PAYMENT_COMPLETED
+  PAYMENT_FAILED
+  INVOICE_GENERATED
+  APPROVAL_REQUIRED
+  APPROVAL_APPROVED
+  APPROVAL_REJECTED
+  EMPLOYEE_ADDED
+  BATCH_COMPLETED
+  SYSTEM_ALERT
+}
+
+model NotificationPreference {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  emailPaymentCompleted Boolean  @default(true)
+  emailPaymentFailed    Boolean  @default(true)
+  emailInvoiceGenerated Boolean  @default(true)
+  emailApprovalRequired Boolean  @default(true)
+  inAppNotifications    Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}
+
+model EmailLog {
+  id          String        @id @default(uuid())
+  to          String
+  subject     String
+  template    String
+  data        Json?
+  status      EmailStatus   @default(PENDING)
+  sentAt      DateTime?
+  failedAt    DateTime?
+  error       String?
+  attempts    Int           @default(0)
+  createdAt   DateTime      @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("email_logs")
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// Sync Models
+model SyncStatus {
+  id                String            @id @default(uuid())
+  network           BlockchainNetwork @unique
+  lastSyncedBlock   Int               @default(0)
+  lastSyncedAt      DateTime?
+  syncInProgress    Boolean           @default(false)
+  lastError         String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@map("sync_status")
+}
+
+model BlockchainEvent {
+  id              String            @id @default(uuid())
+  network         BlockchainNetwork
+  eventName       String
+  contractAddress String
+  transactionHash String
+  blockNumber     Int
+  data            Json
+  processed       Boolean           @default(false)
+  processedAt     DateTime?
+  createdAt       DateTime          @default(now())
+
+  @@index([network])
+  @@index([eventName])
+  @@index([transactionHash])
+  @@index([processed])
+  @@map("blockchain_events")
+}
+
+// Analytics Models (for caching complex queries)
+model DailyMetric {
+  id              String            @id @default(uuid())
+  date            DateTime          @unique
+  network         BlockchainNetwork
+  totalPaid       String
+  paymentCount    Int
+  uniqueEmployees Int
+  gasSpent        String
+  avgGasPrice     String
+  createdAt       DateTime          @default(now())
+
+  @@index([date])
+  @@index([network])
+  @@map("daily_metrics")
+}
+
+// Company Wallet Models
+model CompanyWallet {
+  id                String            @id @default(uuid())
+  network           BlockchainNetwork @unique
+  walletAddress     String            @unique
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  balances          WalletBalance[]
+  deposits          WalletDeposit[]
+  withdrawals       WalletWithdrawal[]
+
+  @@map("company_wallets")
+}
+
+model WalletBalance {
+  id                String            @id @default(uuid())
+  walletId          String
+  token             String            // Token symbol or address (address(0) for native)
+  balance           String            // Current balance
+  lastUpdated       DateTime          @default(now())
+  network           BlockchainNetwork
+
+  wallet            CompanyWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@unique([walletId, token, network])
+  @@index([walletId])
+  @@index([network])
+  @@map("wallet_balances")
+}
+
+model WalletDeposit {
+  id                String            @id @default(uuid())
+  walletId          String
+  transactionHash   String            @unique
+  amount            String
+  token             String
+  network           BlockchainNetwork
+  depositedBy       String
+  confirmedAt      DateTime?
+  createdAt         DateTime          @default(now())
+
+  wallet            CompanyWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([transactionHash])
+  @@index([network])
+  @@index([createdAt])
+  @@map("wallet_deposits")
+}
+
+model WalletWithdrawal {
+  id                String            @id @default(uuid())
+  walletId          String
+  paymentId         String?           // Links to payment if withdrawal was for payment
+  batchId           String?           // Links to batch if withdrawal was for batch payment
+  transactionHash   String            @unique
+  amount            String
+  token             String
+  network           BlockchainNetwork
+  withdrawalType    WithdrawalType    // PAYMENT, TRANSFER, OTHER
+  recipientAddress  String
+  withdrawnBy       String
+  confirmedAt       DateTime?
+  createdAt         DateTime          @default(now())
+
+  wallet            CompanyWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([paymentId])
+  @@index([batchId])
+  @@index([transactionHash])
+  @@index([network])
+  @@map("wallet_withdrawals")
+}
+
+enum WithdrawalType {
+  PAYMENT
+  TRANSFER
+  OTHER
+}
+
+// Company Settings Model
+model CompanySettings {
+  id                String   @id @default(uuid())
+  companyName       String
+  taxId             String?
+  businessAddress   String?
+  defaultCurrency   String   @default("USD")
+  timezone          String   @default("America/New_York")
+  fiscalYearStart   String   @default("January")
+  logoUrl           String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("company_settings")
+}
+
+// Payment Settings Model
+model PaymentSettings {
+  id                    String   @id @default(uuid())
+  defaultNetwork        BlockchainNetwork @default(POLYGON)
+  defaultToken          String   @default("USDT")
+  paymentSchedule       String   @default("MONTHLY")
+  approvalThreshold     String   @default("10000")
+  autoApproveSmall      Boolean  @default(true)
+  verifyWalletAddresses Boolean  @default(true)
+  multiSignatureApproval Boolean @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("payment_settings")
+}
+

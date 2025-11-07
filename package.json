@@ -1,0 +1,63 @@
+{
+  "name": "zenpay-backend",
+  "version": "1.0.0",
+  "description": "Zenpay Payroll Management System - Backend API",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon",
+    "dev:test": "nodemon test-server.js",
+    "dev:inspect": "nodemon --inspect src/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "node prisma/seed.js",
+    "prisma:studio": "prisma studio",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch",
+    "lint": "eslint src/**/*.js",
+    "lint:fix": "eslint src/**/*.js --fix"
+  },
+  "keywords": [
+    "blockchain",
+    "payroll",
+    "web3",
+    "ethereum",
+    "api"
+  ],
+  "author": "Zenpay",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "ethers": "^6.9.0",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "dotenv": "^16.3.1",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "joi": "^17.11.0",
+    "express-rate-limit": "^7.1.5",
+    "express-validator": "^7.0.1",
+    "@prisma/client": "^5.7.0",
+    "prisma": "^5.7.0",
+    "multer": "^1.4.5-lts.1",
+    "xlsx": "^0.18.5",
+    "csv-parser": "^3.0.0",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.7",
+    "@sendgrid/mail": "^8.1.0",
+    "pdfkit": "^0.13.0",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.0",
+    "winston": "^3.11.0",
+    "morgan": "^1.10.0",
+    "compression": "^1.7.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3",
+    "eslint": "^8.55.0",
+    "@types/node": "^20.10.5"
+  }
+}
+
