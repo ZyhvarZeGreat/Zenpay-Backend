@@ -2,10 +2,11 @@ const { ethers } = require('ethers');
 const logger = require('../utils/logger');
 
 // Smart Contract ABIs (import from artifacts)
-const employeeRegistryABI = require('../../../artifacts/contracts/EmployeeRegistry.sol/EmployeeRegistry.json').abi;
-const invoiceManagerABI = require('../../../artifacts/contracts/InvoiceManager.sol/InvoiceManager.json').abi;
-const paymentApprovalABI = require('../../../artifacts/contracts/PaymentApproval.sol/PaymentApproval.json').abi;
-const corePayrollABI = require('../../../artifacts/contracts/CorePayroll.sol/CorePayroll.json').abi;
+// Path is relative to src/config/blockchain.js -> ../artifacts/ (in backend folder)
+const employeeRegistryABI = require('../../artifacts/contracts/EmployeeRegistry.sol/EmployeeRegistry.json').abi;
+const invoiceManagerABI = require('../../artifacts/contracts/InvoiceManager.sol/InvoiceManager.json').abi;
+const paymentApprovalABI = require('../../artifacts/contracts/PaymentApproval.sol/PaymentApproval.json').abi;
+const corePayrollABI = require('../../artifacts/contracts/CorePayroll.sol/CorePayroll.json').abi;
 
 // Network configurations
 const NETWORKS = {

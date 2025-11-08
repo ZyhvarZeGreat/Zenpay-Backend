@@ -3,8 +3,8 @@ require('dotenv').config();
 const { ethers } = require('ethers');
 
 // Import ABIs
-const employeeRegistryABI = require('../artifacts/contracts/EmployeeRegistry.sol/EmployeeRegistry.json').abi;
-const corePayrollABI = require('../artifacts/contracts/CorePayroll.sol/CorePayroll.json').abi;
+const employeeRegistryABI = require('./artifacts/contracts/EmployeeRegistry.sol/EmployeeRegistry.json').abi;
+const corePayrollABI = require('./artifacts/contracts/CorePayroll.sol/CorePayroll.json').abi;
 
 async function testBlockchainConnection() {
   console.log('🧪 Testing Blockchain Integration with Sepolia\n');
