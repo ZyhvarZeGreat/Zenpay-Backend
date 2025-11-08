@@ -8,14 +8,21 @@
     "dev": "nodemon",
     "dev:test": "nodemon test-server.js",
     "dev:inspect": "nodemon --inspect src/index.js",
+    "build": "npx prisma generate",
+    "postinstall": "npx prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "node prisma/seed.js",
     "prisma:studio": "prisma studio",
+    "get:sender": "node scripts/getSenderAddress.js",
     "test": "jest --coverage",
     "test:watch": "jest --watch",
     "lint": "eslint src/**/*.js",
-    "lint:fix": "eslint src/**/*.js --fix"
+    "lint:fix": "eslint src/**/*.js --fix",
+    "deploy:render": "git push render main",
+    "deploy:railway": "railway up",
+    "deploy:heroku": "git push heroku main"
   },
   "keywords": [
     "blockchain",
