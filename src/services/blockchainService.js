@@ -4,50 +4,82 @@ const logger = require('../utils/logger');
 
 class BlockchainService {
   /**
-   * Process single salary payment
+   * Direct USDT transfer to recipient address
+   * @param {string} network - Network name
+   * @param {string} recipientAddress - Recipient wallet address
+   * @param {string} amount - Amount to transfer (in token units, e.g., "1" for 1 USDT)
+   * @param {string} token - Token symbol (USDT, USDC, etc.)
+   * @param {number} maxRetries - Maximum retry attempts
    */
-  async processSalaryPayment(network, employeeId, maxRetries = 3) {
+  async transferToken(network, recipientAddress, amount, token = 'USDT', maxRetries = 3) {
     let attempts = 0;
     let lastError;
 
     while (attempts < maxRetries) {
       try {
         attempts++;
-        logger.info(`Processing payment for employee ${employeeId} on ${network} (attempt ${attempts})`);
+        logger.info(`Transferring ${amount} ${token} to ${recipientAddress} on ${network} (attempt ${attempts})`);
 
-        const contract = getContract(network, 'corePayroll');
-        
+        const { getProvider, getWallet } = require('../config/blockchain');
+        const { ethers } = require('ethers');
+        const provider = getProvider(network);
+        const wallet = getWallet(network);
+
+        // Get token address
+        const tokenAddress = this.getTokenAddress(network, token);
+
+        // ERC20 ABI for transfer
+        const erc20Abi = [
+          'function transfer(address to, uint256 amount) external returns (bool)',
+          'function decimals() external view returns (uint8)',
+          'function balanceOf(address account) external view returns (uint256)',
+        ];
+
+        const tokenContract = new ethers.Contract(tokenAddress, erc20Abi, wallet);
+
+        // Get decimals
+        const decimals = await tokenContract.decimals();
+        const amountInWei = ethers.parseUnits(amount.toString(), decimals);
+
+        // Check balance before transfer
+        const balance = await tokenContract.balanceOf(wallet.address);
+        if (balance < amountInWei) {
+          const balanceFormatted = ethers.formatUnits(balance, decimals);
+          throw new Error(`Insufficient ${token} balance. Required: ${amount} ${token}, Available: ${balanceFormatted} ${token}`);
+        }
+
         // Estimate gas
-        const gasParams = await estimateGas(network, {
-          to: await contract.getAddress(),
-          data: contract.interface.encodeFunctionData('processSalaryPayment', [employeeId]),
-        });
+        const gasEstimate = await tokenContract.transfer.estimateGas(recipientAddress, amountInWei);
+        const gasPrice = await provider.getFeeData();
+        const gasLimit = gasEstimate * BigInt(120) / BigInt(100); // 20% buffer
 
         // Send transaction
-        const tx = await contract.processSalaryPayment(employeeId, {
-          gasLimit: gasParams.gasLimit,
+        const tx = await tokenContract.transfer(recipientAddress, amountInWei, {
+          gasLimit: gasLimit.toString(),
+          maxFeePerGas: gasPrice.maxFeePerGas,
+          maxPriorityFeePerGas: gasPrice.maxPriorityFeePerGas,
         });
 
-        logger.info(`Transaction sent: ${tx.hash}`);
+        logger.info(`Token transfer transaction sent: ${tx.hash}`);
 
         // Wait for confirmation
-        const receipt = await waitForConfirmation(network, tx.hash);
+        const receipt = await tx.wait();
 
         if (receipt.status === 1) {
-          logger.info(`Payment successful: ${tx.hash}`);
+          logger.info(`Token transfer successful: ${tx.hash}`);
           return {
             success: true,
             transactionHash: tx.hash,
             blockNumber: receipt.blockNumber,
             gasUsed: receipt.gasUsed.toString(),
-            events: parseEvents(contract, receipt),
           };
         } else {
-          throw new Error('Transaction failed');
+          throw new Error('Transaction failed on blockchain');
         }
       } catch (error) {
         lastError = error;
-        logger.error(`Payment attempt ${attempts} failed:`, error.message);
+        const errorMessage = error.reason || error.message || 'Unknown error';
+        logger.error(`Token transfer attempt ${attempts} failed:`, errorMessage);
 
         if (attempts < maxRetries) {
           await new Promise(resolve => setTimeout(resolve, 2000 * attempts)); // Exponential backoff
@@ -55,10 +87,20 @@ class BlockchainService {
       }
     }
 
+    const errorMessage = lastError?.reason || lastError?.message || 'Token transfer failed after maximum retries';
     return {
       success: false,
-      error: lastError?.message || 'Payment failed after maximum retries',
+      error: errorMessage,
     };
+  }
+
+  /**
+   * Process single salary payment (using direct transfer)
+   * @deprecated Use transferToken directly instead
+   */
+  async processSalaryPayment(network, recipientAddress, amount, token, maxRetries = 3) {
+    // Delegate to transferToken method
+    return await this.transferToken(network, recipientAddress, amount, token, maxRetries);
   }
 
   /**
@@ -240,6 +282,11 @@ class BlockchainService {
       
       // Map token symbols to addresses
       const tokenAddress = this.getTokenAddress(network, token);
+      
+      // Log the token address being used for debugging
+      if (network === 'ETHEREUM' && token === 'USDT') {
+        logger.info(`Querying USDT balance using contract address: ${tokenAddress} for wallet: ${walletAddress}`);
+      }
       
       if (tokenAddress === '0x0000000000000000000000000000000000000000' || token === 'native' || token === 'ETH') {
         // Native balance

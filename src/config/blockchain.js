@@ -71,6 +71,7 @@ function getProvider(network) {
 
 /**
  * Get wallet for a specific network
+ * Uses SENDER_PRIVATE_KEY if available, otherwise falls back to mnemonic
  */
 function getWallet(network) {
   const networkConfig = NETWORKS[network];
@@ -81,13 +82,16 @@ function getWallet(network) {
   if (!wallets[network]) {
     const provider = getProvider(network);
     
-    // Create wallet from mnemonic
-    if (!networkConfig.mnemonic) {
-      throw new Error(`Mnemonic not configured for ${network}`);
+    // Priority: Use SENDER_PRIVATE_KEY if available, otherwise use mnemonic
+    if (process.env.SENDER_PRIVATE_KEY) {
+      wallets[network] = new ethers.Wallet(process.env.SENDER_PRIVATE_KEY, provider);
+      logger.info(`✓ Wallet initialized for ${network} (from SENDER_PRIVATE_KEY): ${wallets[network].address}`);
+    } else if (networkConfig.mnemonic) {
+      wallets[network] = ethers.Wallet.fromPhrase(networkConfig.mnemonic).connect(provider);
+      logger.info(`✓ Wallet initialized for ${network} (from mnemonic): ${wallets[network].address}`);
+    } else {
+      throw new Error(`Neither SENDER_PRIVATE_KEY nor mnemonic configured for ${network}`);
     }
-    
-    wallets[network] = ethers.Wallet.fromPhrase(networkConfig.mnemonic).connect(provider);
-    logger.info(`✓ Wallet initialized for ${network} (from mnemonic)`);
   }
 
   return wallets[network];
@@ -243,10 +247,20 @@ function parseEvents(contract, receipt) {
   return events;
 }
 
+/**
+ * Get wallet address for a specific network
+ * This is the address that needs to have FINANCE_MANAGER_ROLE in the smart contract
+ */
+function getWalletAddress(network) {
+  const wallet = getWallet(network);
+  return wallet.address;
+}
+
 module.exports = {
   NETWORKS,
   getProvider,
   getWallet,
+  getWalletAddress,
   getContract,
   estimateGas,
   waitForConfirmation,
