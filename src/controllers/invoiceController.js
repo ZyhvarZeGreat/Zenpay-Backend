@@ -292,6 +292,24 @@ class InvoiceController {
   }
 
   /**
+   * Get invoice statistics
+   * GET /api/v1/invoices/stats
+   */
+  async getInvoiceStats(req, res, next) {
+    try {
+      const stats = await invoiceService.getInvoiceStats();
+
+      res.json({
+        success: true,
+        data: stats,
+      });
+    } catch (error) {
+      logger.error('Error getting invoice stats:', error);
+      next(error);
+    }
+  }
+
+  /**
    * Resend invoice notification
    * POST /api/v1/invoices/:id/resend
    */

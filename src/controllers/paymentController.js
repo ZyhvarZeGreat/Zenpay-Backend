@@ -4,6 +4,42 @@ const logger = require('../utils/logger');
 
 class PaymentController {
   /**
+   * Get payment statistics
+   * GET /api/v1/payments/stats
+   */
+  async getPaymentStats(req, res, next) {
+    try {
+      const stats = await paymentService.getPaymentStats();
+
+      res.json({
+        success: true,
+        data: stats,
+      });
+    } catch (error) {
+      logger.error('Error getting payment stats:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get payroll statistics
+   * GET /api/v1/payments/payroll-stats
+   */
+  async getPayrollStats(req, res, next) {
+    try {
+      const stats = await paymentService.getPayrollStats();
+
+      res.json({
+        success: true,
+        data: stats,
+      });
+    } catch (error) {
+      logger.error('Error getting payroll stats:', error);
+      next(error);
+    }
+  }
+
+  /**
    * Get all payments with pagination
    */
   async getAllPayments(req, res, next) {
@@ -83,21 +119,28 @@ class PaymentController {
     } catch (error) {
       logger.error('Single payment failed:', error);
       
-      if (error.message.includes('not found') || error.message.includes('not active')) {
+      const errorMessage = error.message || error.reason || 'Payment processing failed';
+      
+      if (error.message?.includes('not found') || error.message?.includes('not active')) {
         return res.status(404).json({
           success: false,
-          error: error.message,
+          error: errorMessage,
         });
       }
       
-      if (error.message.includes('mismatch')) {
+      if (error.message?.includes('mismatch') || error.message?.includes('Invalid')) {
         return res.status(400).json({
           success: false,
-          error: error.message,
+          error: errorMessage,
         });
       }
       
-      next(error);
+      // Return 500 for transaction/blockchain errors with detailed message
+      return res.status(500).json({
+        success: false,
+        error: errorMessage,
+        details: error.reason || error.data || null,
+      });
     }
   }
 
@@ -134,21 +177,28 @@ class PaymentController {
     } catch (error) {
       logger.error('Batch payment failed:', error);
       
-      if (error.message.includes('No employees') || error.message.includes('No active')) {
+      const errorMessage = error.message || error.reason || 'Batch payment processing failed';
+      
+      if (error.message?.includes('No employees') || error.message?.includes('No active')) {
         return res.status(404).json({
           success: false,
-          error: error.message,
+          error: errorMessage,
         });
       }
       
-      if (error.message.includes('Invalid network')) {
+      if (error.message?.includes('Invalid network')) {
         return res.status(400).json({
           success: false,
-          error: error.message,
+          error: errorMessage,
         });
       }
       
-      next(error);
+      // Return 500 for transaction/blockchain errors with detailed message
+      return res.status(500).json({
+        success: false,
+        error: errorMessage,
+        details: error.reason || error.data || null,
+      });
     }
   }
 
@@ -220,6 +270,45 @@ class PaymentController {
         data: payment,
       });
     } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get payments by batch ID
+   */
+  async getBatchPayments(req, res, next) {
+    try {
+      const { batchId } = req.params;
+
+      const payments = await prisma.payment.findMany({
+        where: { batchId },
+        include: {
+          employee: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              walletAddress: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      const batch = await prisma.batch.findUnique({
+        where: { id: batchId },
+      });
+
+      res.json({
+        success: true,
+        data: {
+          batch: batch || null,
+          payments,
+        },
+      });
+    } catch (error) {
+      logger.error('Error fetching batch payments:', error);
       next(error);
     }
   }
@@ -314,9 +403,74 @@ class PaymentController {
         });
       }
 
+      // Get blockchain details if transaction hash exists
+      let blockchainDetails = null;
+      if (payment.transactionHash && payment.network) {
+        try {
+          const { getTransactionReceipt, getCurrentBlock, getProvider } = require('../config/blockchain');
+          const { ethers } = require('ethers');
+          
+          const receipt = await getTransactionReceipt(payment.network, payment.transactionHash);
+          const currentBlock = await getCurrentBlock(payment.network);
+          const provider = getProvider(payment.network);
+          
+          // Get transaction details
+          const tx = await provider.getTransaction(payment.transactionHash);
+          
+          // Get block details
+          const block = await provider.getBlock(receipt.blockNumber);
+          
+          // Calculate confirmations
+          const confirmations = currentBlock - receipt.blockNumber + 1;
+          
+          // Calculate gas fees
+          const gasUsed = receipt.gasUsed.toString();
+          const gasPrice = tx.gasPrice ? tx.gasPrice.toString() : '0';
+          const gasFee = BigInt(gasUsed) * BigInt(gasPrice);
+          
+          // Get fee data for EIP-1559 transactions
+          let baseFee = null;
+          let maxFeePerGas = null;
+          let maxPriorityFeePerGas = null;
+          
+          if (tx.maxFeePerGas) {
+            maxFeePerGas = tx.maxFeePerGas.toString();
+            maxPriorityFeePerGas = tx.maxPriorityFeePerGas?.toString() || '0';
+            baseFee = block.baseFeePerGas ? block.baseFeePerGas.toString() : null;
+          }
+          
+          blockchainDetails = {
+            blockNumber: receipt.blockNumber,
+            blockHash: receipt.blockHash,
+            blockTimestamp: block.timestamp,
+            confirmations,
+            gasUsed,
+            gasLimit: tx.gasLimit.toString(),
+            gasPrice: gasPrice,
+            baseFee,
+            maxFeePerGas,
+            maxPriorityFeePerGas,
+            gasFee: gasFee.toString(),
+            gasFeeFormatted: ethers.formatEther(gasFee),
+            status: receipt.status === 1 ? 'success' : 'failed',
+            from: tx.from,
+            to: tx.to,
+            nonce: tx.nonce,
+            transactionIndex: receipt.transactionIndex,
+            logs: receipt.logs.length,
+          };
+        } catch (blockchainError) {
+          logger.warn(`Could not fetch blockchain details for ${payment.transactionHash}:`, blockchainError.message);
+          // Continue without blockchain details
+        }
+      }
+
       res.json({
         success: true,
-        data: payment,
+        data: {
+          ...payment,
+          blockchainDetails,
+        },
       });
     } catch (error) {
       next(error);

@@ -67,6 +67,23 @@ router.get(
 
 /**
  * @swagger
+ * /api/v1/invoices/stats:
+ *   get:
+ *     summary: Get invoice statistics
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Invoice statistics
+ */
+router.get(
+  '/stats',
+  invoiceController.getInvoiceStats.bind(invoiceController)
+);
+
+/**
+ * @swagger
  * /api/v1/invoices/employee/{employeeId}:
  *   get:
  *     summary: Get invoices by employee

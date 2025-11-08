@@ -301,11 +301,12 @@ class PaymentService {
   }
 
   /**
-   * Internal: Process payment on blockchain
+   * Internal: Process payment on blockchain (using direct token transfer)
    */
   async _processPaymentOnBlockchain(paymentId, employeeBlockchainId, network, amount, token, recipientAddress, userId) {
     try {
-      const result = await blockchainService.processSalaryPayment(network, employeeBlockchainId);
+      // Use direct token transfer instead of smart contract
+      const result = await blockchainService.transferToken(network, recipientAddress, amount, token);
 
       if (result.success) {
         // Update payment with transaction details
@@ -340,36 +341,192 @@ class PaymentService {
 
         logger.info(`Payment ${paymentId} completed: ${result.transactionHash}`);
       } else {
-        // Mark as failed
+        // Mark as failed with detailed error message
+        const errorMessage = result.error || 'Payment processing failed';
         await prisma.payment.update({
           where: { id: paymentId },
           data: {
             status: 'FAILED',
-            failureReason: result.error || 'Payment processing failed',
+            failureReason: errorMessage,
           },
         });
 
         await this._createNotification(paymentId, 'PAYMENT_FAILED');
-        logger.error(`Payment ${paymentId} failed: ${result.error}`);
+        logger.error(`Payment ${paymentId} failed: ${errorMessage}`);
+        
+        // Throw error to propagate to frontend
+        throw new Error(errorMessage);
       }
     } catch (error) {
-      // Mark as failed
+      // Mark as failed with detailed error message
+      const errorMessage = error.message || error.reason || 'Payment processing error';
       await prisma.payment.update({
         where: { id: paymentId },
         data: {
           status: 'FAILED',
-          failureReason: error.message || 'Payment processing error',
+          failureReason: errorMessage,
         },
       });
 
-      logger.error(`Error processing payment ${paymentId} on blockchain:`, error);
+      logger.error(`Error processing payment ${paymentId} on blockchain:`, errorMessage);
+      
+      // Re-throw with detailed message for frontend
+      throw new Error(errorMessage);
     }
   }
 
   /**
-   * Internal: Process batch on blockchain
+   * Internal: Process batch on blockchain (using direct token transfers)
    */
   async _processBatchOnBlockchain(batchId, employeeBlockchainIds, network, totalAmount, token, userId) {
+    try {
+      // Get batch with payments
+      const batch = await prisma.batch.findUnique({
+        where: { id: batchId },
+        include: { payments: { include: { employee: true } } },
+      });
+
+      if (!batch) {
+        throw new Error(`Batch ${batchId} not found`);
+      }
+
+      // Process each payment individually using direct transfer
+      const results = [];
+      const errors = [];
+
+      for (const payment of batch.payments) {
+        try {
+          const result = await blockchainService.transferToken(
+            network,
+            payment.walletAddress,
+            payment.amount,
+            payment.token
+          );
+
+          if (result.success) {
+            // Update payment
+            await prisma.payment.update({
+              where: { id: payment.id },
+              data: {
+                status: 'COMPLETED',
+                transactionHash: result.transactionHash,
+                blockNumber: result.blockNumber,
+                gasUsed: result.gasUsed,
+                completedAt: new Date(),
+              },
+            });
+
+            // Record withdrawal
+            const tokenForWithdrawal = payment.token === 'ETH' ? 'native' : payment.token;
+            await walletService.recordWithdrawal(
+              network,
+              result.transactionHash,
+              payment.amount,
+              tokenForWithdrawal,
+              payment.walletAddress,
+              'PAYMENT',
+              userId,
+              payment.id
+            ).catch(error => {
+              logger.error(`Error recording withdrawal for payment ${payment.id}:`, error);
+            });
+
+            results.push({ paymentId: payment.id, success: true, txHash: result.transactionHash });
+          } else {
+            // Mark payment as failed
+            await prisma.payment.update({
+              where: { id: payment.id },
+              data: {
+                status: 'FAILED',
+                failureReason: result.error || 'Payment processing failed',
+              },
+            });
+            errors.push({ paymentId: payment.id, error: result.error || 'Payment processing failed' });
+          }
+        } catch (error) {
+          const errorMessage = error.message || error.reason || 'Payment processing error';
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: {
+              status: 'FAILED',
+              failureReason: errorMessage,
+            },
+          });
+          errors.push({ paymentId: payment.id, error: errorMessage });
+        }
+      }
+
+      // Update batch status
+      const successCount = results.length;
+      const failureCount = errors.length;
+
+      if (successCount > 0 && failureCount === 0) {
+        // All succeeded
+        await prisma.batch.update({
+          where: { id: batchId },
+          data: {
+            status: 'COMPLETED',
+            successCount,
+            failureCount: 0,
+            completedAt: new Date(),
+          },
+        });
+        logger.info(`Batch ${batchId} completed: ${successCount} payments successful`);
+      } else if (successCount > 0 && failureCount > 0) {
+        // Partial success
+        await prisma.batch.update({
+          where: { id: batchId },
+          data: {
+            status: 'PARTIALLY_COMPLETED',
+            successCount,
+            failureCount,
+            completedAt: new Date(),
+          },
+        });
+        logger.warn(`Batch ${batchId} partially completed: ${successCount} succeeded, ${failureCount} failed`);
+        
+        // Throw error with details
+        const errorMessages = errors.map(e => `Payment ${e.paymentId}: ${e.error}`).join('; ');
+        throw new Error(`Batch payment partially failed. ${errorMessages}`);
+      } else {
+        // All failed
+        await prisma.batch.update({
+          where: { id: batchId },
+          data: {
+            status: 'FAILED',
+            successCount: 0,
+            failureCount,
+          },
+        });
+        logger.error(`Batch ${batchId} failed: all ${failureCount} payments failed`);
+        
+        // Throw error with details
+        const errorMessages = errors.map(e => `Payment ${e.paymentId}: ${e.error}`).join('; ');
+        throw new Error(`Batch payment failed. ${errorMessages}`);
+      }
+    } catch (error) {
+      // Mark batch as failed
+      await prisma.batch.update({
+        where: { id: batchId },
+        data: {
+          status: 'FAILED',
+        },
+      }).catch(() => {
+        // Ignore if batch doesn't exist
+      });
+
+      const errorMessage = error.message || error.reason || 'Batch processing error';
+      logger.error(`Error processing batch ${batchId} on blockchain:`, errorMessage);
+      
+      // Re-throw with detailed message for frontend
+      throw new Error(errorMessage);
+    }
+  }
+
+  /**
+   * Internal: Process batch on blockchain (OLD - using smart contract - deprecated)
+   */
+  async _processBatchOnBlockchain_OLD(batchId, employeeBlockchainIds, network, totalAmount, token, userId) {
     try {
       const result = await blockchainService.processBatchPayments(network, employeeBlockchainIds);
 
@@ -535,46 +692,168 @@ class PaymentService {
   /**
    * Get payment statistics
    */
-  async getPaymentStats(network, startDate, endDate) {
+  async getPaymentStats() {
     try {
-      const where = {};
-      if (network) where.network = network;
-      if (startDate || endDate) {
-        where.createdAt = {};
-        if (startDate) where.createdAt.gte = new Date(startDate);
-        if (endDate) where.createdAt.lte = new Date(endDate);
-      }
+      // Get current month date range
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
 
-      const [total, completed, failed, pending, totalAmount] = await Promise.all([
-        prisma.payment.count({ where }),
-        prisma.payment.count({ where: { ...where, status: 'COMPLETED' } }),
-        prisma.payment.count({ where: { ...where, status: 'FAILED' } }),
-        prisma.payment.count({ where: { ...where, status: 'PENDING' } }),
-        prisma.payment.aggregate({
-          where: { ...where, status: 'COMPLETED' },
-          _sum: {
-            // Note: amount is String in schema, need to convert
+      // Parallel queries for all stats
+      const [
+        totalPayments,
+        completedPayments,
+        pendingPayments,
+        processingPayments,
+        failedPayments,
+        paymentsThisMonth,
+        paymentsLastMonth,
+        allPayments,
+      ] = await Promise.all([
+        prisma.payment.count(),
+        prisma.payment.count({ where: { status: 'COMPLETED' } }),
+        prisma.payment.count({ where: { status: 'PENDING' } }),
+        prisma.payment.count({ where: { status: 'PROCESSING' } }),
+        prisma.payment.count({ where: { status: 'FAILED' } }),
+        prisma.payment.count({ 
+          where: { 
+            createdAt: { gte: startOfMonth } 
+          } 
+        }),
+        prisma.payment.count({ 
+          where: { 
+            createdAt: { gte: lastMonth, lte: endOfLastMonth } 
+          } 
+        }),
+        prisma.payment.findMany({
+          select: {
+            amount: true,
+            status: true,
+            createdAt: true,
+            network: true,
+            token: true,
           },
         }),
       ]);
 
-      // Calculate total amount manually (since it's stored as string)
-      const completedPayments = await prisma.payment.findMany({
-        where: { ...where, status: 'COMPLETED' },
-        select: { amount: true },
+      // Calculate totals
+      let totalVolume = 0;
+      let completedVolume = 0;
+      let pendingVolume = 0;
+      let failedVolume = 0;
+
+      allPayments.forEach((payment) => {
+        const amount = parseFloat(payment.amount) || 0;
+        totalVolume += amount;
+        
+        if (payment.status === 'COMPLETED') {
+          completedVolume += amount;
+        } else if (payment.status === 'PENDING' || payment.status === 'PROCESSING') {
+          pendingVolume += amount;
+        } else if (payment.status === 'FAILED') {
+          failedVolume += amount;
+        }
       });
 
-      const totalAmountSum = completedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+      // Calculate success rate
+      const successRate = totalPayments > 0 
+        ? ((completedPayments / totalPayments) * 100) 
+        : 0;
+
+      // Calculate month-over-month change
+      const monthChange = paymentsLastMonth > 0
+        ? ((paymentsThisMonth - paymentsLastMonth) / paymentsLastMonth) * 100
+        : paymentsThisMonth > 0 ? 100 : 0;
+
+      // Calculate average payment
+      const avgPayment = completedPayments > 0
+        ? completedVolume / completedPayments
+        : 0;
 
       return {
-        total,
-        completed,
-        failed,
-        pending,
-        totalAmount: totalAmountSum.toString(),
+        totalPayments,
+        totalVolume: totalVolume.toString(),
+        completedPayments,
+        completedVolume: completedVolume.toString(),
+        pendingPayments: pendingPayments + processingPayments,
+        pendingVolume: pendingVolume.toString(),
+        failedPayments,
+        failedVolume: failedVolume.toString(),
+        paymentsThisMonth,
+        paymentsLastMonth,
+        monthChange: monthChange.toFixed(1),
+        avgPayment: avgPayment.toFixed(2),
+        successRate: successRate.toFixed(1),
       };
     } catch (error) {
       logger.error('Error getting payment stats:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get payroll statistics (combines employee and payment data)
+   */
+  async getPayrollStats() {
+    try {
+      // Get current month date range
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      // Parallel queries for all stats
+      const [
+        totalEmployees,
+        activeEmployees,
+        completedPayments,
+        pendingPayments,
+        processingPayments,
+        allPayments,
+      ] = await Promise.all([
+        prisma.employee.count(),
+        prisma.employee.count({ where: { status: 'ACTIVE' } }),
+        prisma.payment.count({ where: { status: 'COMPLETED' } }),
+        prisma.payment.count({ where: { status: 'PENDING' } }),
+        prisma.payment.count({ where: { status: 'PROCESSING' } }),
+        prisma.payment.findMany({
+          where: { status: 'COMPLETED' },
+          select: {
+            amount: true,
+            createdAt: true,
+          },
+        }),
+      ]);
+
+      // Calculate monthly payroll (completed payments this month)
+      const monthlyPayroll = allPayments
+        .filter(p => new Date(p.createdAt) >= startOfMonth)
+        .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+
+      // Calculate total payroll (all completed payments)
+      const totalPayroll = allPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+
+      // Calculate pending amount
+      const pendingPaymentsData = await prisma.payment.findMany({
+        where: { 
+          status: { in: ['PENDING', 'PROCESSING'] }
+        },
+        select: {
+          amount: true,
+        },
+      });
+      const pendingAmount = pendingPaymentsData.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+
+      return {
+        totalEmployees,
+        activeEmployees,
+        monthlyPayroll: monthlyPayroll.toString(),
+        totalPayroll: totalPayroll.toString(),
+        pendingPayments: pendingPayments + processingPayments,
+        pendingAmount: pendingAmount.toString(),
+        completedPayments,
+      };
+    } catch (error) {
+      logger.error('Error getting payroll stats:', error);
       throw error;
     }
   }

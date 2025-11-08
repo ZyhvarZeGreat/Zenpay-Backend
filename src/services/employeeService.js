@@ -308,6 +308,130 @@ class EmployeeService {
       throw error;
     }
   }
+
+  /**
+   * Get employee statistics
+   */
+  async getEmployeeStats() {
+    try {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+
+      // Parallel queries for all stats
+      const [
+        totalEmployees,
+        activeEmployees,
+        inactiveEmployees,
+        suspendedEmployees,
+        employeesThisMonth,
+        employeesLastMonth,
+        allEmployees,
+        employeesByDepartment,
+        employeesByNetwork,
+        completedPayments,
+      ] = await Promise.all([
+        prisma.employee.count(),
+        prisma.employee.count({ where: { status: 'ACTIVE' } }),
+        prisma.employee.count({ where: { status: 'INACTIVE' } }),
+        prisma.employee.count({ where: { status: 'SUSPENDED' } }),
+        prisma.employee.count({ where: { createdAt: { gte: startOfMonth } } }),
+        prisma.employee.count({ where: { createdAt: { gte: startOfLastMonth, lte: endOfLastMonth } } }),
+        prisma.employee.findMany({
+          select: {
+            salaryAmount: true,
+            salaryToken: true,
+            department: true,
+            network: true,
+            status: true,
+            walletAddress: true,
+          },
+        }),
+        prisma.employee.groupBy({
+          by: ['department'],
+          _count: {
+            id: true,
+          },
+        }),
+        prisma.employee.groupBy({
+          by: ['network'],
+          _count: {
+            id: true,
+          },
+        }),
+        prisma.payment.findMany({
+          where: {
+            status: 'COMPLETED',
+            createdAt: { gte: startOfMonth },
+          },
+          select: {
+            amount: true,
+            employeeId: true,
+          },
+        }),
+      ]);
+
+      // Calculate wallet statistics from allEmployees array
+      const employeesWithWallet = allEmployees.filter(emp => emp.walletAddress !== null && emp.walletAddress !== undefined).length;
+      const employeesWithoutWallet = allEmployees.length - employeesWithWallet;
+
+      // Calculate monthly payroll
+      const monthlyPayroll = completedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+
+      // Calculate average salary
+      const totalSalary = allEmployees.reduce((sum, emp) => sum + parseFloat(emp.salaryAmount || 0), 0);
+      const avgSalary = allEmployees.length > 0 ? totalSalary / allEmployees.length : 0;
+
+      // Calculate average monthly payroll per employee
+      const avgMonthlyPayrollPerEmployee = activeEmployees > 0 ? monthlyPayroll / activeEmployees : 0;
+
+      // Month-over-month change
+      const newEmployeesChange = employeesLastMonth > 0
+        ? ((employeesThisMonth - employeesLastMonth) / employeesLastMonth * 100).toFixed(1)
+        : employeesThisMonth > 0 ? '100.0' : '0.0';
+
+      // Department distribution
+      const departmentStats = employeesByDepartment.map(dept => ({
+        name: dept.department,
+        count: dept._count.id,
+        percent: totalEmployees > 0 ? Math.round((dept._count.id / totalEmployees) * 100) : 0,
+      }));
+
+      // Network distribution
+      const networkStats = employeesByNetwork
+        .filter(n => n.network)
+        .map(net => ({
+          name: net.network,
+          count: net._count.id,
+          percent: totalEmployees > 0 ? Math.round((net._count.id / totalEmployees) * 100) : 0,
+        }));
+
+      // Active percentage
+      const activePercent = totalEmployees > 0 ? Math.round((activeEmployees / totalEmployees) * 100 * 10) / 10 : 0;
+
+      return {
+        total: totalEmployees,
+        active: activeEmployees,
+        inactive: inactiveEmployees,
+        suspended: suspendedEmployees,
+        activePercent,
+        newThisMonth: employeesThisMonth,
+        newLastMonth: employeesLastMonth,
+        newEmployeesChange: parseFloat(newEmployeesChange),
+        withWallet: employeesWithWallet,
+        withoutWallet: employeesWithoutWallet,
+        monthlyPayroll: monthlyPayroll.toFixed(2),
+        avgSalary: avgSalary.toFixed(2),
+        avgMonthlyPayrollPerEmployee: avgMonthlyPayrollPerEmployee.toFixed(2),
+        departments: departmentStats,
+        networks: networkStats,
+      };
+    } catch (error) {
+      logger.error('Error getting employee stats:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = new EmployeeService();

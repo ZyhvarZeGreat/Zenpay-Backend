@@ -442,6 +442,129 @@ class InvoiceService {
   }
 
   /**
+   * Get invoice statistics
+   */
+  async getInvoiceStats() {
+    try {
+      // Get current month date range
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+
+      // Parallel queries for all stats
+      const [
+        totalInvoices,
+        paidInvoices,
+        pendingInvoices,
+        cancelledInvoices,
+        overdueInvoices,
+        activeInvoices,
+        invoicesThisMonth,
+        invoicesLastMonth,
+        allInvoices,
+        departments,
+      ] = await Promise.all([
+        prisma.invoice.count(),
+        prisma.invoice.count({ where: { status: 'PAID' } }),
+        prisma.invoice.count({ where: { status: 'PENDING' } }),
+        prisma.invoice.count({ where: { status: 'CANCELLED' } }),
+        prisma.invoice.count({ 
+          where: { 
+            status: 'PENDING',
+            dueDate: { lt: new Date() }
+          } 
+        }),
+        prisma.invoice.count({ 
+          where: { 
+            status: { in: ['PENDING', 'DRAFT'] }
+          } 
+        }),
+        prisma.invoice.count({ 
+          where: { 
+            createdAt: { gte: startOfMonth } 
+          } 
+        }),
+        prisma.invoice.count({ 
+          where: { 
+            createdAt: { gte: lastMonth, lte: endOfLastMonth } 
+          } 
+        }),
+        prisma.invoice.findMany({
+          select: {
+            amount: true,
+            status: true,
+            createdAt: true,
+            employee: {
+              select: {
+                department: true,
+              },
+            },
+          },
+        }),
+        prisma.employee.groupBy({
+          by: ['department'],
+        }),
+      ]);
+
+      // Calculate totals
+      let totalAmount = 0;
+      let paidAmount = 0;
+      let pendingAmount = 0;
+      let avgInvoice = 0;
+
+      allInvoices.forEach((invoice) => {
+        const amount = parseFloat(invoice.amount) || 0;
+        totalAmount += amount;
+        
+        if (invoice.status === 'PAID') {
+          paidAmount += amount;
+        } else if (invoice.status === 'PENDING') {
+          pendingAmount += amount;
+        }
+      });
+
+      if (totalInvoices > 0) {
+        avgInvoice = totalAmount / totalInvoices;
+      }
+
+      // Calculate success rate
+      const successRate = totalInvoices > 0 
+        ? ((paidInvoices / totalInvoices) * 100) 
+        : 0;
+
+      // Calculate month-over-month change
+      const monthChange = invoicesLastMonth > 0
+        ? ((invoicesThisMonth - invoicesLastMonth) / invoicesLastMonth) * 100
+        : invoicesThisMonth > 0 ? 100 : 0;
+
+      // Get unique departments count
+      const uniqueDepartments = departments.length;
+
+      return {
+        totalInvoices,
+        totalAmount: totalAmount.toString(),
+        paidInvoices,
+        paidAmount: paidAmount.toString(),
+        pendingInvoices,
+        pendingAmount: pendingAmount.toString(),
+        cancelledInvoices,
+        overdueInvoices,
+        activeInvoices,
+        invoicesThisMonth,
+        invoicesLastMonth,
+        monthChange: monthChange.toFixed(1),
+        avgInvoice: avgInvoice.toFixed(2),
+        successRate: successRate.toFixed(1),
+        departments: uniqueDepartments,
+      };
+    } catch (error) {
+      logger.error('Error fetching invoice stats:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Resend invoice notification
    */
   async resendInvoiceNotification(invoiceId, email) {

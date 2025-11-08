@@ -111,4 +111,89 @@ router.get(
   analyticsController.getFinancialSummary.bind(analyticsController)
 );
 
+/**
+ * @swagger
+ * /api/v1/analytics/charts:
+ *   get:
+ *     summary: Get analytics charts data
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Analytics charts data
+ */
+router.get(
+  '/charts',
+  analyticsController.getAnalyticsCharts.bind(analyticsController)
+);
+
+/**
+ * @swagger
+ * /api/v1/analytics/token-distribution:
+ *   get:
+ *     summary: Get token distribution
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Token distribution data
+ */
+router.get(
+  '/token-distribution',
+  analyticsController.getTokenDistribution.bind(analyticsController)
+);
+
+/**
+ * @swagger
+ * /api/v1/analytics/network-usage:
+ *   get:
+ *     summary: Get network usage statistics
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Network usage statistics
+ */
+router.get(
+  '/network-usage',
+  analyticsController.getNetworkUsage.bind(analyticsController)
+);
+
+/**
+ * @swagger
+ * /api/v1/analytics/gas-fees:
+ *   get:
+ *     summary: Get gas fees statistics
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Gas fees statistics
+ */
+router.get(
+  '/gas-fees',
+  analyticsController.getGasFeesStats.bind(analyticsController)
+);
+
+/**
+ * @swagger
+ * /api/v1/analytics/month-over-month:
+ *   get:
+ *     summary: Get month-over-month changes
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Month-over-month changes
+ */
+router.get(
+  '/month-over-month',
+  analyticsController.getMonthOverMonthChanges.bind(analyticsController)
+);
+
 module.exports = router;

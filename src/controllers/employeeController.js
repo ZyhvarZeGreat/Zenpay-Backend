@@ -332,6 +332,24 @@ class EmployeeController {
       next(error);
     }
   }
+
+  /**
+   * Get employee statistics
+   * GET /api/v1/employees/stats
+   */
+  async getEmployeeStats(req, res, next) {
+    try {
+      const stats = await employeeService.getEmployeeStats();
+
+      res.json({
+        success: true,
+        data: stats,
+      });
+    } catch (error) {
+      logger.error('Error getting employee stats:', error);
+      next(error);
+    }
+  }
 }
 
 module.exports = new EmployeeController();

@@ -92,6 +92,23 @@ router.get(
 
 /**
  * @swagger
+ * /api/v1/employees/stats:
+ *   get:
+ *     summary: Get employee statistics
+ *     tags: [Employees]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Employee statistics
+ */
+router.get(
+  '/stats',
+  employeeController.getEmployeeStats.bind(employeeController)
+);
+
+/**
+ * @swagger
  * /api/v1/employees/{id}:
  *   get:
  *     summary: Get employee by ID

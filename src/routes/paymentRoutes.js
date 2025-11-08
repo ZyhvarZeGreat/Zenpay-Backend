@@ -38,6 +38,34 @@ router.get('/', paymentController.getAllPayments);
 
 /**
  * @swagger
+ * /api/v1/payments/stats:
+ *   get:
+ *     summary: Get payment statistics
+ *     tags: [Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Payment statistics
+ */
+router.get('/stats', paymentController.getPaymentStats.bind(paymentController));
+
+/**
+ * @swagger
+ * /api/v1/payments/payroll-stats:
+ *   get:
+ *     summary: Get payroll statistics
+ *     tags: [Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Payroll statistics
+ */
+router.get('/payroll-stats', paymentController.getPayrollStats.bind(paymentController));
+
+/**
+ * @swagger
  * /api/v1/payments/single:
  *   post:
  *     summary: Process single payment
@@ -98,6 +126,7 @@ router.post(
   paymentController.uploadBatchCSV
 );
 
+router.get('/batch/:batchId', paymentController.getBatchPayments);
 router.get('/:id', paymentController.getPaymentById);
 router.get('/employee/:employeeId', paymentController.getEmployeePayments);
 router.post('/retry/:id', authorize(['ADMIN', 'FINANCE_MANAGER']), paymentController.retryPayment);

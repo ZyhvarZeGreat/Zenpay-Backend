@@ -81,6 +81,96 @@ class AnalyticsController {
       next(error);
     }
   }
+
+  /**
+   * Get analytics charts data
+   * GET /api/v1/analytics/charts
+   */
+  async getAnalyticsCharts(req, res, next) {
+    try {
+      const charts = await analyticsService.getAnalyticsCharts();
+
+      res.json({
+        success: true,
+        data: charts,
+      });
+    } catch (error) {
+      logger.error('Error getting analytics charts:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get token distribution
+   * GET /api/v1/analytics/token-distribution
+   */
+  async getTokenDistribution(req, res, next) {
+    try {
+      const distribution = await analyticsService.getTokenDistribution();
+
+      res.json({
+        success: true,
+        data: distribution,
+      });
+    } catch (error) {
+      logger.error('Error getting token distribution:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get network usage statistics
+   * GET /api/v1/analytics/network-usage
+   */
+  async getNetworkUsage(req, res, next) {
+    try {
+      const usage = await analyticsService.getNetworkUsage();
+
+      res.json({
+        success: true,
+        data: usage,
+      });
+    } catch (error) {
+      logger.error('Error getting network usage:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get gas fees statistics
+   * GET /api/v1/analytics/gas-fees
+   */
+  async getGasFeesStats(req, res, next) {
+    try {
+      const stats = await analyticsService.getGasFeesStats();
+
+      res.json({
+        success: true,
+        data: stats,
+      });
+    } catch (error) {
+      logger.error('Error getting gas fees stats:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get month-over-month changes
+   * GET /api/v1/analytics/month-over-month
+   */
+  async getMonthOverMonthChanges(req, res, next) {
+    try {
+      const changes = await analyticsService.getMonthOverMonthChanges();
+
+      res.json({
+        success: true,
+        data: changes,
+      });
+    } catch (error) {
+      logger.error('Error getting month-over-month changes:', error);
+      next(error);
+    }
+  }
 }
 
 module.exports = new AnalyticsController();
