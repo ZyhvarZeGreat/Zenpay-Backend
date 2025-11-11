@@ -42,9 +42,24 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check with database status
+app.get('/health', async (req, res) => {
+  const { prisma } = require('./config/database');
+  const health = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    database: 'disconnected',
+  };
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    health.database = 'connected';
+    res.json(health);
+  } catch (error) {
+    health.database = 'error';
+    health.error = error.message;
+    res.status(503).json(health);
+  }
 });
 
 // API Routes
