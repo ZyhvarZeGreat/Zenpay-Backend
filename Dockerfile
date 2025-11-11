@@ -22,7 +22,7 @@ COPY artifacts ./artifacts/
 # Copy application code
 COPY src ./src
 
-# Create uploads directory
+# Create uploads and logs directories
 RUN mkdir -p uploads logs
 
 # Expose port
